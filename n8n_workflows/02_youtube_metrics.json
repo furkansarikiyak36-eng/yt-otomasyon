@@ -1,0 +1,105 @@
+{
+  "name": "YouTube 48h Performance Tracker",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "youtube-uploaded",
+        "responseMode": "onReceived"
+      },
+      "id": "webhook-upload",
+      "name": "Video Uploaded Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [240, 300],
+      "notes": "Called by youtube_uploader.py after every successful upload. Receives: {video_id, channel_id, title, upload_time}"
+    },
+    {
+      "parameters": {
+        "amount": 48,
+        "unit": "hours"
+      },
+      "id": "wait-48h",
+      "name": "Wait 48 Hours",
+      "type": "n8n-nodes-base.wait",
+      "position": [460, 300],
+      "notes": "Waits exactly 48 hours before fetching metrics"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/youtube/v3/videos?part=statistics&id={{$json.video_id}}&key={{$env.YOUTUBE_API_KEY}}",
+        "method": "GET"
+      },
+      "id": "fetch-metrics",
+      "name": "Fetch YouTube Metrics",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [680, 300],
+      "notes": "Fetches views, likes, comments for the video after 48 hours"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst stats = item.items?.[0]?.statistics || {};\nconst views = parseInt(stats.viewCount || 0);\nconst likes = parseInt(stats.likeCount || 0);\nconst comments = parseInt(stats.commentCount || 0);\nconst video_id = $('Video Uploaded Webhook').first().json.video_id;\nconst channel_id = $('Video Uploaded Webhook').first().json.channel_id;\nconst title = $('Video Uploaded Webhook').first().json.title;\nconst low_performance = views < 200;\nreturn [{ json: { video_id, channel_id, title, views, likes, comments, low_performance, checked_at: new Date().toISOString() } }];"
+      },
+      "id": "parse-metrics",
+      "name": "Parse Metrics",
+      "type": "n8n-nodes-base.code",
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "url": "=http://app:5000/webhook/n8n",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "event_type", "value": "youtube_metrics_update" },
+            { "name": "video_id",   "value": "={{$json.video_id}}" },
+            { "name": "channel_id", "value": "={{$json.channel_id}}" },
+            { "name": "views",      "value": "={{$json.views}}" },
+            { "name": "likes",      "value": "={{$json.likes}}" },
+            { "name": "comments",   "value": "={{$json.comments}}" },
+            { "name": "checked_at", "value": "={{$json.checked_at}}" }
+          ]
+        }
+      },
+      "id": "update-sheets",
+      "name": "Update Python/Sheets",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1120, 200],
+      "notes": "Sends metrics to Python app which writes to video_log Sheets tab"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{$json.low_performance}}", "value2": true }]
+        }
+      },
+      "id": "check-performance",
+      "name": "Low Performance?",
+      "type": "n8n-nodes-base.if",
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$env.TELEGRAM_CHAT_ID}}",
+        "text": "=⚠️ Low performance alert!\nVideo: {{$json.title}}\nViews after 48h: {{$json.views}}\nConsider promoting or boosting this video."
+      },
+      "id": "telegram-alert",
+      "name": "Telegram Low Performance Alert",
+      "type": "n8n-nodes-base.telegram",
+      "position": [1340, 400]
+    }
+  ],
+  "connections": {
+    "Video Uploaded Webhook": { "main": [[{ "node": "Wait 48 Hours",             "type": "main", "index": 0 }]] },
+    "Wait 48 Hours":          { "main": [[{ "node": "Fetch YouTube Metrics",     "type": "main", "index": 0 }]] },
+    "Fetch YouTube Metrics":  { "main": [[{ "node": "Parse Metrics",             "type": "main", "index": 0 }]] },
+    "Parse Metrics":          { "main": [[{ "node": "Update Python/Sheets",      "type": "main", "index": 0 },
+                                          { "node": "Low Performance?",          "type": "main", "index": 0 }]] },
+    "Low Performance?":       { "main": [[], [{ "node": "Telegram Low Performance Alert", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "description": "After each video upload, waits 48 hours then fetches metrics and alerts if performance is low.",
+    "phase": "2",
+    "setup_notes": "Set YOUTUBE_API_KEY and TELEGRAM_CHAT_ID env vars in n8n. youtube_uploader.py must POST to http://n8n:5678/webhook/youtube-uploaded after each upload."
+  }
+}

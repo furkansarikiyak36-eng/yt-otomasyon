@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: yt-otomasyon
+    restart: always
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+    volumes:
+      - ./credentials.json:/app/credentials.json:ro
+      - ./jobs:/app/jobs
+      - ./logs:/app/logs
+      - ./backups:/app/backups
+      - ./yt-otomasyon.sqlite:/app/yt-otomasyon.sqlite
+    env_file:
+      - .env
+    ports:
+      - "5000:5000"
+    networks:
+      - yt-net
+
+  n8n:
+    image: n8nio/n8n
+    container_name: yt-n8n
+    restart: always
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-changeme}
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=Europe/Istanbul
+    volumes:
+      - ./n8n_data:/home/node/.n8n
+      - ./n8n_workflows:/home/node/workflows
+    networks:
+      - yt-net
+
+networks:
+  yt-net:
+    driver: bridge

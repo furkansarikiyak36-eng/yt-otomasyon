@@ -1,0 +1,124 @@
+{
+  "name": "Gumroad Sale → Kit + Sheets + Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gumroad-sale",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-gumroad",
+      "name": "Gumroad Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [240, 300],
+      "notes": "Receives Gumroad sale/download events. Configure in Gumroad: Settings → Advanced → Ping URL → http://YOUR_SERVER:5678/webhook/gumroad-sale"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst sale_id = body.sale_id || body.id || '';\nconst email = body.email || body.purchaser_email || '';\nconst product = body.product_name || body.short_url || 'unknown';\nconst price = body.price || body.sale_price || 0;\nconst is_free = price === 0 || price === '0';\nreturn [{\n  json: {\n    sale_id,\n    email,\n    product_name: product,\n    price,\n    is_free,\n    event_type: is_free ? 'lead_magnet_download' : 'sale',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "parse-gumroad",
+      "name": "Parse Gumroad Data",
+      "type": "n8n-nodes-base.code",
+      "position": [460, 300],
+      "notes": "Normalizes Gumroad payload into standard format"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{$json.is_free}}", "value2": false }]
+        }
+      },
+      "id": "is-paid",
+      "name": "Paid or Free?",
+      "type": "n8n-nodes-base.if",
+      "position": [680, 300],
+      "notes": "Routes to different handling for paid sales vs free downloads"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.convertkit.com/v3/subscribers",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "api_secret", "value": "={{$env.KIT_API_SECRET}}" },
+            { "name": "email",      "value": "={{$json.email}}" },
+            { "name": "tags",       "value": "=lead_magnet_{{$json.product_name.toLowerCase().replace(/ /g,'_').slice(0,30)}}" }
+          ]
+        }
+      },
+      "id": "kit-add-lead",
+      "name": "Kit: Add Lead Subscriber",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [900, 200],
+      "notes": "Adds free download subscriber to Kit with product tag"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.convertkit.com/v3/subscribers",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "api_secret", "value": "={{$env.KIT_API_SECRET}}" },
+            { "name": "email",      "value": "={{$json.email}}" },
+            { "name": "tags",       "value": "=buyer_{{$json.product_name.toLowerCase().replace(/ /g,'_').slice(0,30)}}" }
+          ]
+        }
+      },
+      "id": "kit-add-buyer",
+      "name": "Kit: Tag as Buyer",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [900, 400],
+      "notes": "Tags paid buyers in Kit to trigger post-purchase email sequence"
+    },
+    {
+      "parameters": {
+        "url": "=http://app:5000/webhook/n8n",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "event_type",    "value": "={{$json.event_type}}" },
+            { "name": "email_hash",    "value": "={{$json.email}}" },
+            { "name": "product_name",  "value": "={{$json.product_name}}" },
+            { "name": "price",         "value": "={{$json.price}}" },
+            { "name": "timestamp",     "value": "={{$json.timestamp}}" }
+          ]
+        }
+      },
+      "id": "notify-python",
+      "name": "Notify Python System",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1120, 300],
+      "notes": "Sends event to Python Flask app for Sheets logging and Telegram notification"
+    },
+    {
+      "parameters": {
+        "chatId": "={{$env.TELEGRAM_CHAT_ID}}",
+        "text": "=💰 New {{ $json.is_free ? 'lead' : 'SALE' }}!\nProduct: {{ $json.product_name }}\nPrice: ${{ $json.price }}\nTime: {{ $json.timestamp }}"
+      },
+      "id": "telegram-notify",
+      "name": "Telegram Notification",
+      "type": "n8n-nodes-base.telegram",
+      "position": [1340, 300],
+      "notes": "Sends immediate Telegram notification for every sale/download"
+    }
+  ],
+  "connections": {
+    "Gumroad Webhook":        { "main": [[{ "node": "Parse Gumroad Data",       "type": "main", "index": 0 }]] },
+    "Parse Gumroad Data":     { "main": [[{ "node": "Paid or Free?",            "type": "main", "index": 0 }]] },
+    "Paid or Free?":          { "main": [
+      [{ "node": "Kit: Add Lead Subscriber", "type": "main", "index": 0 }],
+      [{ "node": "Kit: Tag as Buyer",        "type": "main", "index": 0 }]
+    ]},
+    "Kit: Add Lead Subscriber": { "main": [[{ "node": "Notify Python System",  "type": "main", "index": 0 }]] },
+    "Kit: Tag as Buyer":       { "main": [[{ "node": "Notify Python System",   "type": "main", "index": 0 }]] },
+    "Notify Python System":   { "main": [[{ "node": "Telegram Notification",   "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "description": "Handles Gumroad sale and free download webhooks. Routes to Kit tagging, Python system notification, and Telegram alerts.",
+    "phase": "1",
+    "setup_notes": "1. Set KIT_API_SECRET env var in n8n. 2. Set TELEGRAM_CHAT_ID env var. 3. In Gumroad: Settings → Advanced → Ping URL → http://YOUR_SERVER:5678/webhook/gumroad-sale"
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "name": "Shopify Product → Social Content Trigger",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "shopify-product",
+        "responseMode": "onReceived"
+      },
+      "id": "webhook-shopify",
+      "name": "Shopify Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [240, 300],
+      "notes": "Receives Shopify product/inventory webhooks. Configure in Shopify: Settings → Notifications → Webhooks → Add webhook. Events: products/create, products/update, inventory_items/update. URL: http://YOUR_SERVER:5678/webhook/shopify-product"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json;\nconst topic = body.headers?.['x-shopify-topic'] || body.topic || 'unknown';\nconst product = body.title || body.product?.title || 'Unknown Product';\nconst price = body.variants?.[0]?.price || body.price || '0';\nconst stock = body.inventory_quantity || body.variants?.[0]?.inventory_quantity || 0;\nconst product_id = body.id || body.product_id || '';\nconst image_url = body.images?.[0]?.src || '';\nconst is_new = topic.includes('create');\nconst is_restock = topic.includes('update') && stock > 0;\nreturn [{\n  json: {\n    topic, product_id, product, price, stock,\n    image_url, is_new, is_restock,\n    trigger_content: is_new || is_restock,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "parse-shopify",
+      "name": "Parse Shopify Event",
+      "type": "n8n-nodes-base.code",
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{$json.trigger_content}}", "value2": true }]
+        }
+      },
+      "id": "should-produce",
+      "name": "Trigger Content?",
+      "type": "n8n-nodes-base.if",
+      "position": [680, 300],
+      "notes": "Only triggers content production for new products or restocks"
+    },
+    {
+      "parameters": {
+        "url": "=http://app:5000/webhook/n8n",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "event_type",  "value": "shopify_product_trigger" },
+            { "name": "product_id",  "value": "={{$json.product_id}}" },
+            { "name": "product",     "value": "={{$json.product}}" },
+            { "name": "price",       "value": "={{$json.price}}" },
+            { "name": "stock",       "value": "={{$json.stock}}" },
+            { "name": "image_url",   "value": "={{$json.image_url}}" },
+            { "name": "is_new",      "value": "={{$json.is_new}}" },
+            { "name": "timestamp",   "value": "={{$json.timestamp}}" }
+          ]
+        }
+      },
+      "id": "notify-python",
+      "name": "Trigger Python Social Producer",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [900, 200],
+      "notes": "Sends product data to Python — social_producer.py creates the content"
+    },
+    {
+      "parameters": {
+        "chatId": "={{$env.TELEGRAM_CHAT_ID}}",
+        "text": "=🛍️ Shopify {{ $json.is_new ? 'YENİ ÜRÜN' : 'STOK YENİLEME' }}\nÜrün: {{ $json.product }}\nFiyat: ${{ $json.price }} | Stok: {{ $json.stock }}\n\nSosyal medya içeriği üretiliyor..."
+      },
+      "id": "telegram-notify",
+      "name": "Telegram Notification",
+      "type": "n8n-nodes-base.telegram",
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$env.TELEGRAM_CHAT_ID}}",
+        "text": "=ℹ️ Shopify güncelleme — içerik tetiklenmedi.\nÜrün: {{ $json.product }} | Stok: {{ $json.stock }}"
+      },
+      "id": "telegram-skip",
+      "name": "Telegram Skip Notification",
+      "type": "n8n-nodes-base.telegram",
+      "position": [900, 500]
+    }
+  ],
+  "connections": {
+    "Shopify Webhook":              { "main": [[{ "node": "Parse Shopify Event",             "type": "main", "index": 0 }]] },
+    "Parse Shopify Event":          { "main": [[{ "node": "Trigger Content?",               "type": "main", "index": 0 }]] },
+    "Trigger Content?":             { "main": [
+      [{ "node": "Trigger Python Social Producer", "type": "main", "index": 0 },
+       { "node": "Telegram Notification",          "type": "main", "index": 0 }],
+      [{ "node": "Telegram Skip Notification",     "type": "main", "index": 0 }]
+    ]}
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "description": "Shopify yeni ürün veya stok yenilemesi → sosyal medya içerik üretimi tetikleyicisi. social_producer.py Pipeline 2'yi çalıştırır.",
+    "phase": "2.5",
+    "pipeline": "social_shopify",
+    "setup_notes": "1. Shopify Admin → Settings → Notifications → Webhooks → Add webhook. 2. Events: products/create + products/update. 3. URL: http://YOUR_SERVER:5678/webhook/shopify-product. 4. Set TELEGRAM_CHAT_ID in n8n variables."
+  }
+}

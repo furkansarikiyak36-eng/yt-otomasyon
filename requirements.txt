@@ -1,0 +1,65 @@
+# Web & scheduling
+flask==2.3.3
+apscheduler==3.10.4
+gunicorn==21.2.0
+
+# Google
+gspread==5.12.0
+google-auth==2.23.4
+google-auth-oauthlib==1.1.0
+google-auth-httplib2==0.1.1
+google-api-python-client==2.108.0
+
+# Telegram
+python-telegram-bot==20.7
+
+# Database
+# sqlite3 is built-in
+
+# GitHub backup
+PyGithub==2.1.1
+
+# Error tracking
+sentry-sdk==1.40.0
+
+# HTTP & scraping
+requests==2.31.0
+aiohttp==3.9.1
+beautifulsoup4==4.12.2
+fake-useragent==1.4.0
+cloudscraper==1.2.71
+
+# Data
+pandas==2.1.4
+python-dotenv==1.0.0
+
+# Encryption
+cryptography==41.0.7
+
+# Video & audio
+moviepy==1.0.3
+Pillow==10.1.0
+
+# PDF
+reportlab==4.0.7
+fpdf2==2.7.6
+WeasyPrint==60.2
+
+# System monitoring
+psutil==5.9.6
+
+# Kit/ConvertKit
+# Uses requests directly
+
+# Trend scanning
+pytrends==4.9.2
+praw==7.7.1
+
+# YouTube
+google-auth==2.23.4
+# google-api-python-client already included above
+
+# Optional: Shopify (Phase 4)
+# ShopifyAPI==12.4.0
+
+edge-tts>=6.1.9

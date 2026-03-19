@@ -1,0 +1,102 @@
+{
+  "name": "Form Gönderimi → Kit Abone + Sheets + Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "form-subscriber",
+        "responseMode": "onReceived"
+      },
+      "id": "webhook-form",
+      "name": "Form Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [240, 300],
+      "notes": "Typeform veya Tally form gönderimlerini alır. Webhook URL: http://YOUR_SERVER:5678/webhook/form-subscriber"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json;\nconst email = body.email || body.answers?.find(a => a.type === 'email')?.email || '';\nconst name  = body.name  || body.answers?.find(a => a.field?.title?.toLowerCase().includes('name'))?.text || '';\nconst source = body.form_id || body.formId || 'form';\nconst tag    = `lead_form_${source}`.replace(/[^a-z0-9_]/gi,'_').slice(0,40);\nif (!email) throw new Error('No email found in form submission');\nreturn [{ json: { email, name, source, tag, submitted_at: new Date().toISOString() } }];"
+      },
+      "id": "parse-form",
+      "name": "Parse Form Data",
+      "type": "n8n-nodes-base.code",
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.convertkit.com/v3/subscribers",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "api_secret", "value": "={{$env.KIT_API_SECRET}}" },
+            { "name": "email",      "value": "={{$json.email}}" },
+            { "name": "first_name", "value": "={{$json.name}}" }
+          ]
+        }
+      },
+      "id": "kit-add-subscriber",
+      "name": "Kit — Add Subscriber",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [680, 200]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.convertkit.com/v3/tags",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "api_secret", "value": "={{$env.KIT_API_SECRET}}" },
+            { "name": "email",      "value": "={{$json.email}}" },
+            { "name": "tag",        "value": "={{$json.tag}}" }
+          ]
+        }
+      },
+      "id": "kit-add-tag",
+      "name": "Kit — Add Tag",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [680, 320]
+    },
+    {
+      "parameters": {
+        "url": "http://app:5000/webhook/n8n",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "event_type",   "value": "form_subscriber" },
+            { "name": "email",        "value": "={{$json.email}}" },
+            { "name": "source",       "value": "={{$json.source}}" },
+            { "name": "tag",          "value": "={{$json.tag}}" },
+            { "name": "submitted_at", "value": "={{$json.submitted_at}}" }
+          ]
+        }
+      },
+      "id": "notify-python",
+      "name": "Python — Log to Sheets",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [680, 440]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$env.TELEGRAM_CHAT_ID}}",
+        "text": "=📝 Yeni Form Abonesi\n📧 {{$json.email}}\n🏷️ Kaynak: {{$json.source}}\n🔖 Tag: {{$json.tag}}"
+      },
+      "id": "telegram-notify",
+      "name": "Telegram Bildirimi",
+      "type": "n8n-nodes-base.telegram",
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "Form Webhook":        { "main": [[{ "node": "Parse Form Data",        "type": "main", "index": 0 }]] },
+    "Parse Form Data":     { "main": [[{ "node": "Kit — Add Subscriber",   "type": "main", "index": 0 },
+                                       { "node": "Kit — Add Tag",           "type": "main", "index": 0 },
+                                       { "node": "Python — Log to Sheets",  "type": "main", "index": 0 }]] },
+    "Kit — Add Subscriber":{ "main": [[{ "node": "Telegram Bildirimi",     "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "description": "Typeform veya Tally form gönderimi → Kit abone ekle + tag + Sheets log + Telegram bildirim",
+    "phase": "3",
+    "setup": "Form webhook URL'sini Typeform/Tally entegrasyonuna ekle: http://YOUR_SERVER:5678/webhook/form-subscriber. KIT_API_SECRET n8n Variables'a ekle."
+  }
+}
