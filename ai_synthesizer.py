@@ -441,7 +441,7 @@ Remember: your content judgment is primary ({int((1-influence)*100)}%). Referenc
             if approved:
                 return await self._call_gemini(prompt)
 
-        return self._call_ollama(prompt)
+        return await self._call_openrouter(prompt)
 
     async def synthesize_product_idea(
         self,
