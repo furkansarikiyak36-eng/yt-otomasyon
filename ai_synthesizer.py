@@ -489,6 +489,45 @@ Remember: your content judgment is primary ({int((1-influence)*100)}%). Referenc
             return self._call_ollama(prompt)
 
     async def _call_claude(self, prompt: str) -> Dict:
+      async def _call_openrouter(self, prompt: str, model: str = None) -> Dict:
+    """
+    OpenRouter API — 100+ model tek endpoint üzerinden.
+    Ücretsiz modeller: meta-llama/llama-3.1-8b-instruct:free
+                       mistralai/mistral-7b-instruct:free
+                       google/gemma-2-9b-it:free
+    Ücretli modeller:  openai/gpt-4o, anthropic/claude-3.5-sonnet vs.
+    """
+    if not Config.OPENROUTER_API_KEY:
+        log.warning("OpenRouter API key not set — falling back to Ollama")
+        return self._call_ollama(prompt)
+    try:
+        import requests
+        model = model or Config.OPENROUTER_MODEL
+        resp  = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {Config.OPENROUTER_API_KEY}",
+                "Content-Type":  "application/json",
+                "HTTP-Referer":  "https://mindfully.brand",  # isteğe bağlı
+                "X-Title":       "Mindfully Brand Automation",
+            },
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "user", "content": prompt + "\n\nRespond ONLY with valid JSON."}
+                ],
+                "response_format": {"type": "json_object"},
+            },
+            timeout=120
+        )
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"]
+        result  = json.loads(content)
+        log.info(f"OpenRouter complete ({model})")
+        return result
+    except Exception as e:
+        log.error(f"OpenRouter failed: {e} — falling back to Ollama")
+        return self._call_ollama(prompt)
         if not Config.CLAUDE_API_KEY:
             return self._call_ollama(prompt)
         try:
