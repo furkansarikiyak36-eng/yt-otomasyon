@@ -248,7 +248,26 @@ def build_scheduler(sheets_manager, github_backup,
         id="disk_cleanup",
         name="Weekly disk cleanup",
     )
-
+# Her gün 03:00 — GitHub'dan güncelleme kontrol et
+async def auto_update():
+    import subprocess
+    result = subprocess.run(
+        ["git", "pull", "origin", "main"],
+        cwd="/app",
+        capture_output=True, text=True
+    )
+    if "Already up to date" in result.stdout:
+        return  # Değişiklik yok, sessiz geç
+    
+    # Değişiklik var — Telegram'a bildir
+    await telegram_handler.send_message(
+        f"🔄 <b>Kod Güncellendi</b>\n\n"
+        f"{result.stdout[:300]}\n\n"
+        f"Restart için: ✅ Yeniden Başlat / ❌ Geç"
+    )
+    action = await telegram_handler._wait_for_callback("auto_update")
+    if action == "continue":
+        subprocess.run(["docker", "compose", "restart", "app"])
     log.info(
         "Scheduler ready:\n"
         "  Fitness  : Mon/Wed/Fri 10:00\n"
